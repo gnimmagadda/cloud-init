@@ -1,13 +1,18 @@
-Content-Type: multipart/mixed; boundary="//"
-MIME-Version: 1.0
---//
-Content-Type: text/cloud-config; charset="us-ascii"
-MIME-Version: 1.0
-Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="cloud-config.txt"
 #cloud-config
-groups:
-  - cloud-init-test-group
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg-agent
+  - software-properties-common
+
+write_files:
+  - path: /var/cloud-init-write-files-test
+    owner: root:root
+    permissions: '0644'
+    content: |
+      testing
+
 users:
   - name: cloud-init-test-user
     groups: cloud-init-test-group
@@ -15,52 +20,26 @@ users:
     sudo: ['ALL=(ALL) NOPASSWD:ALL']
     lock_passwd: false
     passwd: $6$kJ/wsIeY5l.VTCPf$gg/20M8h3vhRGVltgsUNtPzJ1QDtEJppszR5xmdLllkpOkLMdzczHau8RFPHgf9K9uLKLhYKfO5AimKHErBSP0
-write_files:
-  - path: /var/cloud-init-write-files-test
-    owner: root:root
-    permissions: '0644'
-    content: |
-      testing
+
+groups:
+  - cloud-init-test-group
+  - docker
+
+# Add default auto created user to docker group
+system_info:
+  default_user:
+    groups: [docker]
+
 runcmd:
-  - hostnamectl set-hostname $vm_name
   - touch /var/cloud-init-runcmd-test
   - chmod 755 /var/cloud-init-runcmd-test
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | apt-key add -
+  - add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
+  - apt-get update -y
+  - apt-get install -y docker-ce docker-ce-cli containerd.io
+  - systemctl start docker
+  - systemctl enable docker
 
 cloud_final_modules:
 - [scripts-user, always]
---//
-Content-Type: text/x-shellscript; charset="us-ascii"
-MIME-Version: 1.0
-Content-Transfer-Encoding: 7bit
-Content-Disposition: attachment; filename="userdata.txt"
-#!/bin/bash
-
-logFile="/var/log/user-data-output.log"
-
-echo "#######################################" >> $logFile
-echo "Started execution of user data script at `date`" >> $logFile
-
-isNtpInstalled=`systemctl list-unit-files --type service --state enabled,generated --all | grep -c "ntpd\.service"`
-
-if [ $isNtpInstalled -eq 0 ]; then
-    # NTP service is not installed
-    yum install ntp -y >> $logFile 2>&1
-
-    if [ $? -eq 0 ]; then
-        sed -i 's/^server/#server/g' /etc/ntp.conf >> $logFile 2>&1
-
-        echo "Appending NTP server IP [$ntp_server_ip] to /etc/ntp.conf file" >> $logFile
-        echo 'server $ntp_server_ip' >> /etc/ntp.conf
-
-        echo "Starting and enabling NTP service ..." >> $logFile
-        systemctl start ntpd
-        systemctl enable ntpd
-    else
-        echo "Failed to install ntpd service. Not configuring NTP service" >> $logFile
-    fi
-else
-    echo "NTP service is already configured." >> $logFile
-fi
-
-echo "User data configuration completed !!!" >> $logFile
 
