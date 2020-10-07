@@ -1,0 +1,59 @@
+#cloud-config
+groups:
+  - cloud-init-test-group
+users:
+  - name: cloud-init-test-user
+    groups: cloud-init-test-group
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    lock_passwd: false
+    passwd: $6$kJ/wsIeY5l.VTCPf$gg/20M8h3vhRGVltgsUNtPzJ1QDtEJppszR5xmdLllkpOkLMdzczHau8RFPHgf9K9uLKLhYKfO5AimKHErBSP0
+write_files:
+  - path: /var/cloud-init-write-files-test
+    owner: root:root
+    permissions: '0644'
+    content: |
+      testing
+runcmd:
+  - hostnamectl set-hostname $vm_name
+  - touch /var/cloud-init-runcmd-test
+  - chmod 755 /var/cloud-init-runcmd-test
+
+cloud_final_modules:
+- [scripts-user, always]
+--//
+Content-Type: text/x-shellscript; charset="us-ascii"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Content-Disposition: attachment; filename="userdata.txt"
+#!/bin/bash
+
+logFile="/var/log/user-data-output.log"
+
+echo "#######################################" >> $logFile
+echo "Started execution of user data script at `date`" >> $logFile
+
+isNtpInstalled=`systemctl list-unit-files --type service --state enabled,generated --all | grep -c "ntpd\.service"`
+
+if [ $isNtpInstalled -eq 0 ]; then
+    # NTP service is not installed
+    yum install ntp -y >> $logFile 2>&1
+
+    if [ $? -eq 0 ]; then
+        sed -i 's/^server/#server/g' /etc/ntp.conf >> $logFile 2>&1
+
+        echo "Appending NTP server IP [$ntp_server_ip] to /etc/ntp.conf file" >> $logFile
+        echo 'server $ntp_server_ip' >> /etc/ntp.conf
+
+        echo "Starting and enabling NTP service ..." >> $logFile
+        systemctl start ntpd
+        systemctl enable ntpd
+    else
+        echo "Failed to install ntpd service. Not configuring NTP service" >> $logFile
+    fi
+else
+    echo "NTP service is already configured." >> $logFile
+fi
+
+echo "User data configuration completed !!!" >> $logFile
+
